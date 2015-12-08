@@ -1,0 +1,573 @@
+package lmt.com.yidongjidi;
+
+import java.io.BufferedInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.UnsupportedEncodingException;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.TreeMap;
+
+import org.apache.http.HttpHost;
+import org.apache.http.HttpResponse;
+import org.apache.http.NameValuePair;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
+import org.apache.http.client.methods.HttpEntityEnclosingRequestBase;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.client.methods.HttpUriRequest;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.http.params.BasicHttpParams;
+import org.apache.http.params.HttpParams;
+import org.apache.http.params.HttpProtocolParams;
+import org.apache.http.protocol.HTTP;
+import org.apache.http.util.EntityUtils;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import android.text.TextUtils;
+
+import lmt.com.yidongjidi.util.ExceptionUtil;
+import lmt.com.yidongjidi.util.MMUtil;
+
+public class Connection {
+
+    public static final int CONN_MODE_GET = 1;
+
+    public static final int CONN_MODE_POST = 2;
+
+    private int connMode = 1;
+
+    private URL mUrl;
+
+    protected Parameter mParameter;
+
+    protected byte[] mPostData;
+
+    private String mContentType;
+
+    private JSONObject errorMsg;
+
+    private boolean userHttpClient = true;
+
+    public Connection(URL url, JSONObject errorMsg, boolean userHC) {
+        this.mUrl = url;
+        this.errorMsg = errorMsg;
+        this.userHttpClient = userHC;
+    }
+
+    public void setConnMode(int connMode) {
+        this.connMode = connMode;
+    }
+
+    public void addParams(Parameter param) {
+        this.mParameter = param;
+    }
+
+    public void setPostDataBytes(byte[] postData) {
+        this.mPostData = postData;
+    }
+
+    public void setContentType(String contentType) {
+        this.mContentType = contentType;
+    }
+
+    public JSONObject requestJson() {
+        ByteArrayOutputStream bayos = new ByteArrayOutputStream();
+        NetworkError result = request(bayos);
+        if (result == NetworkError.OK) {
+            try {
+                String json = bayos.toString("UTF-8");
+                bayos.close();
+                return new JSONObject(json);
+            } catch (Exception e1) {
+                e1.printStackTrace();
+            }
+        }
+        return null;
+    }
+
+    public String requestString() {
+        ByteArrayOutputStream bayos = new ByteArrayOutputStream();
+        NetworkError result = request(bayos);
+        if (result == NetworkError.OK) {
+            try {
+                String str = bayos.toString("UTF-8");
+                bayos.close();
+                return str;
+            } catch (Exception e1) {
+                e1.printStackTrace();
+            }
+        }
+        return null;
+    }
+
+    private NetworkError request(ByteArrayOutputStream bayos) {
+        String url = "";
+        if (connMode == CONN_MODE_GET && mParameter != null && !mParameter.isEmpty()) {
+            String query = mUrl.getQuery();
+            String baseUrl = mUrl.toString();
+            String s4;
+            if (TextUtils.isEmpty(query))
+                s4 = (new StringBuilder()).append(baseUrl).append("?").append(mParameter.toEncodedString()).toString();
+            else
+                s4 = (new StringBuilder()).append(baseUrl).append("&").append(mParameter.toEncodedString()).toString();
+            url = s4;
+            if (userHttpClient) {
+                return requestInnerWithHttpClient(url, bayos);
+            } else {
+                return requestInner(url, bayos);
+            }
+        }
+        if (userHttpClient) {
+            return requestInnerWithHttpClient(mUrl.toString(), bayos);
+        } else {
+            return requestInner(mUrl.toString(), bayos);
+        }
+    }
+
+    private HttpClient getHttpClient() {
+        HttpParams httpParams = new BasicHttpParams();
+        HttpClient client = new DefaultHttpClient(httpParams);
+        return client;
+    }
+
+    private NetworkError requestInnerWithHttpClient(String url, ByteArrayOutputStream bayos) {
+
+        NetworkError statusErr = NetworkError.UNKNOWN_ERROR;
+        int statusCode = 0;
+        HttpClient httpclient = getHttpClient();
+        HttpPost post = new HttpPost(url);
+
+
+        if (mParameter != null && !mParameter.isEmpty()) {
+            if (mParameter.useNamePair) {
+                ArrayList<NamePair> params = mParameter.getNameParams();
+                for (int i = 0; i < params.size(); i++) {
+                    ((HttpUriRequest) post).addHeader(params.get(i).key, params.get(i).val);
+                }
+            }
+        }
+
+        MMUtil.printLog("Make HttpClient Connect : " + url + "\n" + ((mPostData == null) ? "" : new String(mPostData)));
+
+        if (mPostData != null && mPostData.length > 0) {
+            try {
+                StringEntity entity = new StringEntity(new String(mPostData, "UTF-8"));
+                ((HttpEntityEnclosingRequestBase) post).setEntity(entity);
+            } catch (UnsupportedEncodingException e1) {
+                e1.printStackTrace();
+            }
+        }
+
+        try {
+            HttpResponse res = httpclient.execute(((HttpUriRequest) post));
+
+            statusCode = res.getStatusLine().getStatusCode();
+            statusErr = handleResponseCode(statusCode);
+
+            MMUtil.printLog("Make Connect : statusCode(" + statusCode + ");");
+
+            if (statusErr == NetworkError.OK) {
+                if (bayos != null) {
+                    BufferedInputStream bufferedinputstream1 = new BufferedInputStream(res.getEntity().getContent(), 8192);
+                    byte[] abyte1 = new byte[1024];
+                    int j;
+                    while ((j = bufferedinputstream1.read(abyte1, 0, 1024)) > 0) {
+                        bayos.write(abyte1, 0, j);
+                    }
+                    bayos.flush();
+                    bufferedinputstream1.close();
+                }
+            } else {
+                if (bayos != null) {
+                    BufferedInputStream bufferedinputstream1 = new BufferedInputStream(res.getEntity().getContent(), 8192);
+                    byte[] abyte1 = new byte[1024];
+                    int j;
+                    while ((j = bufferedinputstream1.read(abyte1, 0, 1024)) > 0) {
+                        bayos.write(abyte1, 0, j);
+                    }
+                    bayos.flush();
+
+                    MMUtil.printLog("Make Connect : " + url + ", Error Result:  " + statusCode + ", Response: "
+                            + bayos.toString("UTF-8"));
+
+                    bayos.close();
+                    bufferedinputstream1.close();
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            try {
+                if (null != errorMsg) {
+                    errorMsg.put("errorMsg", ExceptionUtil.getErrorInfoFromException(e) + "\n statusCode(" + statusCode + ")");
+                }
+            } catch (Exception e1) {
+                e1.printStackTrace();
+            }
+        }
+        return statusErr;
+    }
+
+    public static void requestInnerWithHttpClient(String url) {
+        HttpClient httpclient = new DefaultHttpClient();
+        HttpPost post = new HttpPost(url);
+        post.addHeader("OS_TYPE", "1");
+        post.addHeader("Accept-Encoding", "gzip");
+        post.addHeader("X-OF-Key", "Signature-OF-RSAUtils");
+        post.addHeader("platform", "Android");
+        post.addHeader("Response-Type", "xml");
+        post.addHeader("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+        post.addHeader("Accept", "application/xml");
+        post.addHeader("apiVersion", "2.2");
+        post.addHeader("SDKVersion", "20143");
+        post.addHeader("imei", "864587025430936");
+        post.addHeader("imsi", "864587025430936");
+        post.addHeader("X-OF-Signature", "F2e+zi69aESHv0wAPF9YMLh/FPk=");
+        post.addHeader("signer", "F2e+zi69aESHv0wAPF9YMLh/FPk=");
+        post.addHeader("sdkSessionId", "nKEy2fIkqkJ4");
+
+        List<NameValuePair> params = new ArrayList<NameValuePair>();
+        params.add(new BasicNameValuePair("loginType", "2"));
+        params.add(new BasicNameValuePair("gameId", "&"));
+        params.add(new BasicNameValuePair("contentId", "600116002110"));
+        params.add(new BasicNameValuePair("channelId", "40166001"));
+        params.add(new BasicNameValuePair("userToken", "65061448589868957765428"));
+        params.add(new BasicNameValuePair("needTel", "1"));
+        params.add(new BasicNameValuePair("tokenType", "0"));
+
+        try {
+            UrlEncodedFormEntity localUrlEncodedFormEntity = new UrlEncodedFormEntity(params, HTTP.UTF_8);
+            localUrlEncodedFormEntity.setContentType("application/x-www-form-urlencoded; charset=" + "UTF-8");
+
+            post.setEntity(localUrlEncodedFormEntity);
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        }
+
+        try {
+            HttpResponse res = httpclient.execute(post);
+            MMUtil.printLog("requestInnerWithHttpClient -- Status(" + res.getStatusLine().toString() + "), Entity:\n" + EntityUtils.toString(res.getEntity()));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private NetworkError requestInner(String url, ByteArrayOutputStream bayos) {
+
+        int statusCodeInt = 0;
+        try {
+            URL u = new URL(url);
+            HttpURLConnection httpurlconnection = (HttpURLConnection) u.openConnection();
+            httpurlconnection.setConnectTimeout(10000);
+            if (MMUtil.isWifiConnected()) {
+                httpurlconnection.setReadTimeout(10000);
+            } else {
+                httpurlconnection.setReadTimeout(30000);
+            }
+
+            if (connMode == CONN_MODE_GET) {
+                httpurlconnection.setRequestMethod("GET");
+                httpurlconnection.setDoOutput(false);
+            } else if (connMode == CONN_MODE_POST) {
+                httpurlconnection.setRequestMethod("POST");
+                httpurlconnection.setDoOutput(true);
+                httpurlconnection.setUseCaches(false);
+//                if (mPostData != null && mPostData.length > 0) {
+//                    httpurlconnection.setRequestProperty("Content-Length", Integer.toString(mPostData.length));
+//                }
+                if (!TextUtils.isEmpty(mContentType)) {
+                    httpurlconnection.setRequestProperty("Content-Type", mContentType);
+                }
+
+                if (mParameter != null && !mParameter.isEmpty()) {
+
+                    if (mParameter.useNamePair) {
+                        ArrayList<NamePair> params = mParameter.getNameParams();
+                        for (int i = 0; i < params.size(); i++) {
+                            if ("Content-Length".equals(params.get(i).key)) {
+                                httpurlconnection.setRequestProperty(params.get(i).key, Integer.toString(mPostData.length));
+                            } else {
+                                httpurlconnection.setRequestProperty(params.get(i).key, params.get(i).val);
+                            }
+                        }
+                    } else {
+                        TreeMap<String, String> params = mParameter.getTreeParams();
+                        for (Iterator<String> iterator = params.keySet().iterator(); iterator.hasNext(); ) {
+                            String key = (String) iterator.next();
+                            String val = params.get(key);
+                            httpurlconnection.setRequestProperty(key, val);
+                        }
+                    }
+                }
+            }
+
+            MMUtil.printLog("Make Connect : " + url + "\n" + ((mPostData == null) ? "" : new String(mPostData)));
+
+            httpurlconnection.connect();
+
+            if (mPostData != null && mPostData.length > 0) {
+                OutputStream outputstream = httpurlconnection.getOutputStream();
+                outputstream.write(mPostData);
+                outputstream.close();
+            }
+
+            NetworkError statusCode = handleResponseCode(httpurlconnection.getResponseCode());
+
+            statusCodeInt = httpurlconnection.getResponseCode();
+
+            MMUtil.printLog("Make Connect : statusCode(" + httpurlconnection.getResponseCode() + ");");
+
+            if (statusCode == NetworkError.OK) {
+
+                if (bayos != null) {
+                    BufferedInputStream bufferedinputstream1 = new BufferedInputStream(httpurlconnection.getInputStream(), 8192);
+                    byte[] abyte1 = new byte[1024];
+                    int j;
+                    while ((j = bufferedinputstream1.read(abyte1, 0, 1024)) > 0) {
+                        bayos.write(abyte1, 0, j);
+                    }
+                    bayos.flush();
+                    bufferedinputstream1.close();
+                }
+                if (httpurlconnection != null) {
+                    httpurlconnection.disconnect();
+                }
+            } else {
+                if (bayos != null) {
+                    BufferedInputStream bufferedinputstream1 = new BufferedInputStream(httpurlconnection.getInputStream(), 8192);
+                    byte[] abyte1 = new byte[1024];
+                    int j;
+                    while ((j = bufferedinputstream1.read(abyte1, 0, 1024)) > 0) {
+                        bayos.write(abyte1, 0, j);
+                    }
+                    bayos.flush();
+
+                    MMUtil.printLog("Make Connect : " + url + ", Error Result:  " + httpurlconnection.getResponseCode() + ", Response: "
+                            + bayos.toString("UTF-8"));
+
+                    bayos.close();
+                    bufferedinputstream1.close();
+                }
+                if (httpurlconnection != null) {
+                    httpurlconnection.disconnect();
+                }
+            }
+            return statusCode;
+        } catch (Exception e) {
+            e.printStackTrace();
+            try {
+                if (null != errorMsg) {
+                    errorMsg.put("errorMsg", ExceptionUtil.getErrorInfoFromException(e) + "\n statusCode(" + statusCodeInt + ")");
+                }
+            } catch (Exception e1) {
+                e1.printStackTrace();
+            }
+            e.printStackTrace();
+        }
+        return NetworkError.CLIENT_ERROR;
+    }
+
+    private NetworkError handleResponseCode(int i) {
+        if (i == 200)
+            return NetworkError.OK;
+        if (i == 401) {
+            return NetworkError.AUTH_ERROR;
+        } else {
+            return NetworkError.SERVER_ERROR;
+        }
+    }
+
+    public enum NetworkError {
+        OK, URL_ERROR, NETWORK_ERROR, AUTH_ERROR, CLIENT_ERROR, SERVER_ERROR, RESULT_ERROR, UNKNOWN_ERROR
+    }
+
+    private static StringBuilder appendParameter(StringBuilder stringbuilder, String s, String s1) {
+        if (stringbuilder.length() > 0)
+            stringbuilder.append("&");
+        stringbuilder.append(s);
+        stringbuilder.append("=");
+        stringbuilder.append(s1);
+        return stringbuilder;
+    }
+
+    private static StringBuilder appendParameter(StringBuilder stringbuilder, String s, String s1, char c) {
+        if (stringbuilder.length() > 0)
+            stringbuilder.append(c);
+        stringbuilder.append(s);
+        stringbuilder.append("=");
+        stringbuilder.append(s1);
+        return stringbuilder;
+    }
+
+    private static StringBuilder appendParameter(StringBuilder stringbuilder, String s, String s1, String s2) {
+        if (stringbuilder.length() > 0)
+            stringbuilder.append("&");
+        stringbuilder.append(s);
+        stringbuilder.append("=");
+        try {
+            stringbuilder.append(URLEncoder.encode(s1, s2));
+        } catch (UnsupportedEncodingException unsupportedencodingexception) {
+            return stringbuilder;
+        }
+        return stringbuilder;
+    }
+
+    class NamePair {
+        public String key;
+        public String val;
+
+        public NamePair(String key, String val) {
+            this.key = key;
+            this.val = val;
+        }
+    }
+
+    public class Parameter {
+        private boolean disallowEmptyValue;
+        private TreeMap<String, String> params;
+        private ArrayList<NamePair> nameParams;
+
+        private boolean useNamePair = true;
+
+        public Parameter() {
+            this(true);
+        }
+
+        public Parameter(boolean bindToConnection) {
+            if (useNamePair) {
+                nameParams = new ArrayList<>();
+            } else {
+                params = new TreeMap<String, String>();
+            }
+            if (bindToConnection) {
+                mParameter = this;
+            }
+        }
+
+        public Parameter add(String paramString, int paramInt) {
+            if (useNamePair) {
+                this.nameParams.add(new NamePair(paramString, String.valueOf(paramInt)));
+            } else {
+                this.params.put(paramString, String.valueOf(paramInt));
+            }
+            return this;
+        }
+
+        public Parameter add(String paramString, Object paramObject) {
+            if (paramObject == null) {
+                if (this.disallowEmptyValue)
+                    return this;
+                paramObject = "";
+            }
+            if (useNamePair) {
+                this.nameParams.add(new NamePair(paramString, String.valueOf(paramObject)));
+            } else {
+                this.params.put(paramString, String.valueOf(paramObject));
+            }
+            return this;
+        }
+
+        public Parameter add(String paramString1, String paramString2) {
+            if (TextUtils.isEmpty(paramString2)) {
+                if (this.disallowEmptyValue)
+                    return this;
+                paramString2 = "";
+            }
+
+            if (useNamePair) {
+                this.nameParams.add(new NamePair(paramString1, paramString2));
+            } else {
+                this.params.put(paramString1, paramString2);
+            }
+            return this;
+        }
+
+        public Parameter add(String paramString, boolean paramBoolean) {
+            if (useNamePair) {
+                this.nameParams.add(new NamePair(paramString, String.valueOf(paramBoolean)));
+            } else {
+                this.params.put(paramString, String.valueOf(paramBoolean));
+            }
+            return this;
+        }
+
+        public TreeMap<String, String> getTreeParams() {
+            return this.params;
+        }
+
+        public ArrayList<NamePair> getNameParams() {
+            return this.nameParams;
+        }
+
+        public boolean isEmpty() {
+            if (useNamePair) {
+                return this.nameParams.isEmpty();
+            } else {
+                return this.params.isEmpty();
+            }
+        }
+
+        public void setDisallowEmptyValue(boolean paramBoolean) {
+            this.disallowEmptyValue = paramBoolean;
+        }
+
+        public String toEncodedString() {
+            return toEncodedString("UTF-8");
+        }
+
+        public String toEncodedString(String paramString) {
+            if (isEmpty())
+                return "";
+            StringBuilder localStringBuilder = new StringBuilder();
+
+            if (useNamePair) {
+                for (int i = 0; i < nameParams.size(); i++) {
+                    NamePair pair = nameParams.get(i);
+                    localStringBuilder = Connection.appendParameter(localStringBuilder, pair.key, pair.val, paramString);
+                }
+            } else {
+                Iterator<String> localIterator = this.params.keySet().iterator();
+                while (localIterator.hasNext()) {
+                    String str = localIterator.next();
+                    localStringBuilder = Connection.appendParameter(localStringBuilder, str, (String) this.params.get(str), paramString);
+                }
+            }
+            return localStringBuilder.toString();
+        }
+
+        public String toString() {
+            return toString('&');
+        }
+
+        public String toString(char paramChar) {
+            if (isEmpty())
+                return "";
+            StringBuilder localStringBuilder = new StringBuilder();
+
+            if (useNamePair) {
+                for (int i = 0; i < nameParams.size(); i++) {
+                    NamePair pair = nameParams.get(i);
+                    localStringBuilder = Connection.appendParameter(localStringBuilder, pair.key, pair.val, paramChar);
+                }
+            } else {
+                Iterator<String> localIterator = this.params.keySet().iterator();
+                while (localIterator.hasNext()) {
+                    String str = (String) localIterator.next();
+                    localStringBuilder = Connection.appendParameter(localStringBuilder, str, (String) this.params.get(str), paramChar);
+                }
+            }
+            return localStringBuilder.toString();
+        }
+    }
+}
