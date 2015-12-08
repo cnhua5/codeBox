@@ -1,0 +1,78 @@
+import android.util.Log;
+
+public class LogUtil {
+
+	public static final void printLog(boolean e, String val) {
+		StackTraceElement ste = new Throwable().getStackTrace()[1];
+		String clazzName = ste.getClassName();
+		String methodName = ste.getMethodName();
+		int line = ste.getLineNumber();
+		String title = clazzName + "." + methodName + "(" + line + ")";
+		LogUtil.printTooLongLog(e, title, val);
+	}
+
+	public static void printTooLongLog(boolean e, String tag, String sb) {
+		if (sb.length() > 4000) {
+			int chunkCount = sb.length() / 4000; // integer division
+			for (int i = 0; i <= chunkCount; i++) {
+				int max = 4000 * (i + 1);
+				if (max >= sb.length()) {
+					print(e, tag, sb.substring(4000 * i));
+				} else {
+					print(e, tag, sb.substring(4000 * i, max));
+				}
+			}
+		} else {
+			print(e, tag, sb.toString());
+		}
+	}
+
+	private static void print(boolean e, String tag, String msg) {
+		if (e) {
+			Log.e(tag, msg);
+		} else {
+			Log.d(tag, msg);
+		}
+	}
+
+	public static boolean isLogOut() {
+		return Log.isLoggable("tag", Log.VERBOSE);
+	}
+
+	public static String getStackMsg(Exception e) {
+
+		StringBuffer sb = new StringBuffer();
+		StackTraceElement[] stackArray = e.getStackTrace();
+		for (int i = 0; i < stackArray.length; i++) {
+			StackTraceElement element = stackArray[i];
+			sb.append(element.toString() + "\n");
+		}
+		return sb.toString();
+	}
+
+	public static String getStackMsg(Throwable e) {
+
+		StringBuffer sb = new StringBuffer();
+		StackTraceElement[] stackArray = e.getStackTrace();
+		for (int i = 0; i < stackArray.length; i++) {
+			StackTraceElement element = stackArray[i];
+			sb.append(element.toString() + "\n");
+		}
+		return sb.toString();
+	}
+
+	public static void printStack() {
+		boolean DEBUG_PRINT_STACK = true;
+		if (DEBUG_PRINT_STACK) {
+			Throwable ex = new Throwable();
+
+			StackTraceElement[] stackElements = ex.getStackTrace();
+			if (stackElements != null) {
+				for (int i = 0; i < stackElements.length; i++) {
+					System.out.println("文件名：" + stackElements[i].getFileName() + ", 类名：" + stackElements[i].getClassName() + ",方法名："
+							+ stackElements[i].getMethodName() + "行：(" + stackElements[i].getLineNumber() + ")");
+				}
+			}
+		}
+	}
+}
