@@ -1,0 +1,53 @@
+public static boolean isRoot() {
+        String var0 = System.getenv("PATH");
+        ArrayList var1 = new ArrayList();
+        String[] var2 = var0.split(":");
+
+        for (int var3 = 0; var3 < var2.length; ++var3) {
+            var1.add("ls -l " + var2[var3] + "/su");
+        }
+
+        ArrayList execResArray = a("/system/bin/sh", var1);
+
+        String line = "";
+        String result = "";
+        for (int i = 0; i < execResArray.size(); i++) {
+            result = line + (String) execResArray.get(i);
+        }
+
+        boolean root = result.contains("-rwsr-sr-x root     root");
+
+        return root;
+    }
+
+    public static ArrayList<String> a(String paramString, ArrayList<String> paramArrayList) {
+        ArrayList resultArray = new ArrayList();
+        try {
+            Process localProcess = Runtime.getRuntime().exec(paramString);
+            BufferedOutputStream localBufferedOutputStream = new BufferedOutputStream(localProcess.getOutputStream());
+            BufferedReader localBufferedReader = new BufferedReader(new InputStreamReader(localProcess.getInputStream()));
+            for (int i = 0; i < paramArrayList.size(); i++) {
+
+                localBufferedOutputStream.write((paramArrayList.get(i) + " 2>&1\n").getBytes());
+                localBufferedOutputStream.flush();
+
+                String str = localBufferedReader.readLine();
+                if (null != str) {
+                    resultArray.add(str);
+                } else {
+                    try {
+                        localProcess.waitFor();
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+            localBufferedOutputStream.write("exit\n".getBytes());
+            localBufferedOutputStream.flush();
+
+            localProcess.destroy();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return resultArray;
+    }
